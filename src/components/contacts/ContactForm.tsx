@@ -5,11 +5,13 @@ import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { AlertCircle, Loader2 } from "lucide-react";
 import Field from "@/components/ui/Field";
+import AddressesEditor from "@/components/contacts/AddressesEditor";
 import PhotoInput from "@/components/contacts/PhotoInput";
 import Button, { buttonClasses } from "@/components/ui/Button";
-import { CONTACT_FIELD_GROUPS } from "@/lib/contacts/schema";
+import { CONTACT_FIELD_GROUPS, type ContactFieldGroup } from "@/lib/contacts/schema";
 import {
   EMPTY_FORM_STATE,
+  type AddressInput,
   type Contact,
   type ContactInput,
   type FormState,
@@ -53,7 +55,59 @@ export default function ContactForm({
   const [isPhotoReading, setIsPhotoReading] = useState(false);
 
   function valueFor(name: keyof ContactInput): string {
-    return state.values?.[name] ?? contact?.[name] ?? "";
+    const value = state.values?.[name] ?? contact?.[name] ?? "";
+    return typeof value === "string" ? value : "";
+  }
+
+  // After a failed submit, restore the addresses the user was editing from
+  // the echoed JSON; otherwise start from what is stored on the contact.
+  function initialAddresses(): AddressInput[] {
+    const echoed = state.values?.addresses;
+    if (echoed) {
+      try {
+        return JSON.parse(echoed) as AddressInput[];
+      } catch {
+        // Fall through to the stored addresses.
+      }
+    }
+    return (contact?.addresses ?? []).map(
+      ({ type, street, city, state: region, postal_code, country }) => ({
+        type,
+        street,
+        city,
+        state: region,
+        postal_code,
+        country,
+      }),
+    );
+  }
+
+  function renderGroup(group: ContactFieldGroup) {
+    return (
+      <fieldset key={group.title} className="space-y-4">
+        <legend className="sr-only">{group.title}</legend>
+
+        <div className="border-b border-hairline pb-2">
+          <h2 className="font-display text-sm font-semibold text-foreground">
+            {group.title}
+          </h2>
+          <p className="text-[13px] text-muted-foreground">
+            {group.description}
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {group.fields.map((field) => (
+            <Field
+              key={field.name}
+              field={field}
+              defaultValue={valueFor(field.name)}
+              error={state.fieldErrors?.[field.name]}
+            />
+          ))}
+        </div>
+      </fieldset>
+    );
   }
 
   function preventSubmitWhileReadingPhoto(event: FormEvent<HTMLFormElement>) {
@@ -100,31 +154,31 @@ export default function ContactForm({
         />
       </fieldset>
 
-      {CONTACT_FIELD_GROUPS.map((group) => (
-        <fieldset key={group.title} className="space-y-4">
-          <legend className="sr-only">{group.title}</legend>
+      {CONTACT_FIELD_GROUPS.filter((group) => group.title !== "Notes").map(
+        renderGroup,
+      )}
 
-          <div className="border-b border-hairline pb-2">
-            <h2 className="font-display text-sm font-semibold text-foreground">
-              {group.title}
-            </h2>
-            <p className="text-[13px] text-muted-foreground">
-              {group.description}
-            </p>
-          </div>
+      <fieldset className="space-y-4">
+        <legend className="sr-only">Addresses</legend>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {group.fields.map((field) => (
-              <Field
-                key={field.name}
-                field={field}
-                defaultValue={valueFor(field.name)}
-                error={state.fieldErrors?.[field.name]}
-              />
-            ))}
-          </div>
-        </fieldset>
-      ))}
+        <div className="border-b border-hairline pb-2">
+          <h2 className="font-display text-sm font-semibold text-foreground">
+            Addresses
+          </h2>
+          <p className="text-[13px] text-muted-foreground">
+            A contact can have several, each marked Home, Work, or Other.
+          </p>
+        </div>
+
+        <AddressesEditor
+          initialAddresses={initialAddresses()}
+          error={state.fieldErrors?.addresses}
+        />
+      </fieldset>
+
+      {CONTACT_FIELD_GROUPS.filter((group) => group.title === "Notes").map(
+        renderGroup,
+      )}
 
       <div className="flex items-center gap-2 border-t border-hairline pt-4">
         <SubmitButton label={submitLabel} disabled={isPhotoReading} />

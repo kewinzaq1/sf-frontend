@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ContactInput } from "./types";
+import { ADDRESS_TYPES, type AddressType, type ContactInput } from "./types";
 
 /**
  * Client/server-shared validation for the contact form.
@@ -50,6 +50,24 @@ function requiredText(max: number, label: string) {
     .max(max, `${label} must be ${max} characters or fewer`);
 }
 
+/** Address rules, mirroring the API: a typed list, capped at 20 entries. */
+export const MAX_ADDRESSES = 20;
+
+export const ADDRESS_TYPE_LABELS: Record<AddressType, string> = {
+  home: "Home",
+  work: "Work",
+  other: "Other",
+};
+
+export const addressInputSchema = z.object({
+  type: z.enum(ADDRESS_TYPES),
+  street: optionalText(300, "Street address"),
+  city: optionalText(120, "City"),
+  state: optionalText(120, "State"),
+  postal_code: optionalText(20, "Postal code"),
+  country: optionalText(120, "Country"),
+});
+
 export const contactInputSchema = z.object({
   first_name: requiredText(100, "First name"),
   last_name: requiredText(100, "Last name"),
@@ -63,11 +81,24 @@ export const contactInputSchema = z.object({
   phone: optionalText(40, "Phone"),
   company: optionalText(200, "Company"),
   job_title: optionalText(200, "Job title"),
-  address: optionalText(300, "Address"),
-  city: optionalText(120, "City"),
-  state: optionalText(120, "State"),
-  postal_code: optionalText(20, "Postal code"),
-  country: optionalText(120, "Country"),
+  // AddressesEditor submits the list as JSON in a hidden input; parse it
+  // here so the rest of the pipeline works with plain typed objects.
+  addresses: z
+    .string()
+    .default("")
+    .transform((raw, ctx) => {
+      try {
+        return JSON.parse(raw || "[]") as unknown;
+      } catch {
+        ctx.addIssue({ code: "custom", message: "Addresses could not be read" });
+        return z.NEVER;
+      }
+    })
+    .pipe(
+      z
+        .array(addressInputSchema)
+        .max(MAX_ADDRESSES, `A contact can have at most ${MAX_ADDRESSES} addresses`),
+    ),
   notes: z
     .string()
     .trim()
@@ -193,48 +224,6 @@ export const CONTACT_FIELD_GROUPS: ContactFieldGroup[] = [
     ],
   },
   {
-    title: "Address",
-    description: "Optional postal details.",
-    fields: [
-      {
-        name: "address",
-        label: "Street address",
-        maxLength: 300,
-        placeholder: "1 Market St, Suite 400",
-        autoComplete: "street-address",
-        wide: true,
-      },
-      {
-        name: "city",
-        label: "City",
-        maxLength: 120,
-        placeholder: "San Francisco",
-        autoComplete: "address-level2",
-      },
-      {
-        name: "state",
-        label: "State / region",
-        maxLength: 120,
-        placeholder: "CA",
-        autoComplete: "address-level1",
-      },
-      {
-        name: "postal_code",
-        label: "Postal code",
-        maxLength: 20,
-        placeholder: "94105",
-        autoComplete: "postal-code",
-      },
-      {
-        name: "country",
-        label: "Country",
-        maxLength: 120,
-        placeholder: "USA",
-        autoComplete: "country-name",
-      },
-    ],
-  },
-  {
     title: "Notes",
     description: "Anything worth remembering. No length limit.",
     fields: [
@@ -265,7 +254,9 @@ export function formDataToValues(
         String(formData.get(field.name) ?? ""),
       ]),
     ) as Record<keyof ContactInput, string>),
-    // The photo is not a text field; PhotoInput submits it as a hidden input.
+    // Neither of these is a text field: PhotoInput and AddressesEditor
+    // submit them through hidden inputs (a data URL and JSON, respectively).
     photo: String(formData.get("photo") ?? ""),
+    addresses: String(formData.get("addresses") ?? ""),
   };
 }

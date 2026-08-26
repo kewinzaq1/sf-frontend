@@ -13,11 +13,7 @@ function values(overrides: Record<string, string> = {}) {
     phone: "",
     company: "",
     job_title: "",
-    address: "",
-    city: "",
-    state: "",
-    postal_code: "",
-    country: "",
+    addresses: "",
     notes: "",
     photo: "",
     ...overrides,
@@ -62,13 +58,54 @@ describe("contactInputSchema", () => {
 
   it("enforces the API's length limits", () => {
     const result = contactInputSchema.safeParse(
-      values({ first_name: "a".repeat(101), postal_code: "9".repeat(21) }),
+      values({ first_name: "a".repeat(101), company: "c".repeat(201) }),
     );
 
     expect(zodFieldErrors(result.error!)).toEqual({
       first_name: "First name must be 100 characters or fewer",
-      postal_code: "Postal code must be 20 characters or fewer",
+      company: "Company must be 200 characters or fewer",
     });
+  });
+
+  it("parses the address JSON into a typed list", () => {
+    const parsed = contactInputSchema.parse(
+      values({
+        addresses: JSON.stringify([
+          { type: "work", street: "1 Market St", city: "San Francisco", state: "CA", postal_code: "", country: "USA" },
+        ]),
+      }),
+    );
+
+    expect(parsed.addresses).toEqual([
+      {
+        type: "work",
+        street: "1 Market St",
+        city: "San Francisco",
+        state: "CA",
+        postal_code: null,
+        country: "USA",
+      },
+    ]);
+  });
+
+  it("treats a blank addresses payload as an empty list", () => {
+    expect(contactInputSchema.parse(values()).addresses).toEqual([]);
+  });
+
+  it("rejects an unknown address type", () => {
+    const result = contactInputSchema.safeParse(
+      values({ addresses: JSON.stringify([{ type: "vacation" }]) }),
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unparseable address JSON", () => {
+    const result = contactInputSchema.safeParse(values({ addresses: "not json" }));
+
+    expect(zodFieldErrors(result.error!).addresses).toBe(
+      "Addresses could not be read",
+    );
   });
 
   it("accepts an image data URL as the photo and nulls out a blank one", () => {
@@ -111,7 +148,7 @@ describe("formDataToValues", () => {
     expect(extracted.first_name).toBe("Grace");
     expect(extracted.last_name).toBe("");
     expect(Object.keys(extracted).sort()).toEqual(
-      [...CONTACT_FIELDS.map((field) => field.name), "photo"].sort(),
+      [...CONTACT_FIELDS.map((field) => field.name), "photo", "addresses"].sort(),
     );
   });
 });
