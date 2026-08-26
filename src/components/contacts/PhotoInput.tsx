@@ -3,15 +3,21 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ImagePlus, Trash2, Upload } from "lucide-react";
 import Button from "@/components/ui/Button";
+import { compressAvatar, MAX_INPUT_BYTES } from "@/lib/contacts/image";
 import { PHOTO_MAX_BYTES, PHOTO_MIME_TYPES } from "@/lib/contacts/schema";
 
 /**
  * Photo picker for the contact form.
  *
- * The chosen image is read into a base64 data URL and submitted through a
- * hidden `photo` input, so the form stays a plain POST. Because the input is
- * always present, an untouched edit form re-submits the existing photo —
- * important, since saving is a full `PUT` replacement.
+ * The chosen image is compressed to a tiny square avatar, read into a base64
+ * data URL, and submitted through a hidden `photo` input, so the form stays a
+ * plain POST. Because the input is always present, an untouched edit form
+ * re-submits the existing photo — important, since saving is a full `PUT`
+ * replacement.
+ *
+ * Reads are serialised: picking another file or removing the photo cancels
+ * any in-flight read or compression via a job id, and `onReadStateChange`
+ * lets the form block submission until the staged value is current.
  */
 export default function PhotoInput({
   initialPhoto,
@@ -26,10 +32,10 @@ export default function PhotoInput({
   const [localError, setLocalError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const readerRef = useRef<FileReader | null>(null);
-  const readIdRef = useRef(0);
+  const jobIdRef = useRef(0);
 
-  function cancelPendingRead() {
-    readIdRef.current += 1;
+  function cancelPendingJob() {
+    jobIdRef.current += 1;
     readerRef.current?.abort();
     readerRef.current = null;
     onReadStateChange?.(false);
@@ -37,49 +43,77 @@ export default function PhotoInput({
 
   useEffect(() => () => readerRef.current?.abort(), []);
 
-  function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+  function stagePhoto(dataUrl: string) {
+    setPhoto(dataUrl);
+    setLocalError(null);
+  }
+
+  function finishJob(jobId: number): boolean {
+    if (jobIdRef.current !== jobId) return false; // superseded by a newer pick
+    readerRef.current = null;
+    onReadStateChange?.(false);
+    return true;
+  }
+
+  function readVerbatim(file: File, jobId: number) {
+    const reader = new FileReader();
+    readerRef.current = reader;
+    reader.onload = () => {
+      if (finishJob(jobId)) stagePhoto(String(reader.result));
+    };
+    reader.onerror = () => {
+      if (finishJob(jobId)) setLocalError("That file could not be read.");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     // Reset so picking the same file again still fires a change event.
     event.target.value = "";
-    cancelPendingRead();
+    cancelPendingJob();
     if (!file) return;
 
     if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
       setLocalError("Choose a PNG, JPEG, WebP, or GIF image.");
       return;
     }
-    if (file.size > PHOTO_MAX_BYTES) {
-      setLocalError("That image is over 1 MB. Pick a smaller one.");
+    if (file.size > MAX_INPUT_BYTES) {
+      setLocalError("That file is over 25 MB. Pick a smaller one.");
+      return;
+    }
+    // Re-encoding a GIF through a canvas would freeze its animation, so GIFs
+    // are kept verbatim and stay bound by the API's 1 MB cap instead.
+    if (file.type === "image/gif" && file.size > PHOTO_MAX_BYTES) {
+      setLocalError("GIFs are kept as-is, so they must be 1 MB or smaller.");
       return;
     }
 
-    const reader = new FileReader();
-    const readId = readIdRef.current;
-    readerRef.current = reader;
+    const jobId = jobIdRef.current;
     onReadStateChange?.(true);
 
-    function isCurrentRead() {
-      return readerRef.current === reader && readIdRef.current === readId;
+    if (file.type === "image/gif") {
+      readVerbatim(file, jobId);
+      return;
     }
 
-    reader.onload = () => {
-      if (!isCurrentRead()) return;
-      setPhoto(String(reader.result));
-      setLocalError(null);
-      readerRef.current = null;
-      onReadStateChange?.(false);
-    };
-    reader.onerror = () => {
-      if (!isCurrentRead()) return;
-      setLocalError("That file could not be read.");
-      readerRef.current = null;
-      onReadStateChange?.(false);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressAvatar(file);
+      if (finishJob(jobId)) stagePhoto(compressed);
+    } catch {
+      if (jobIdRef.current !== jobId) return;
+      // Compression needs canvas APIs; if they fail, the original still works
+      // as long as it fits the API's cap.
+      if (file.size <= PHOTO_MAX_BYTES) {
+        readVerbatim(file, jobId);
+      } else if (finishJob(jobId)) {
+        setLocalError("That image could not be processed. Try a smaller one.");
+      }
+    }
   }
 
   function removePhoto() {
-    cancelPendingRead();
+    cancelPendingJob();
     setPhoto("");
     setLocalError(null);
   }

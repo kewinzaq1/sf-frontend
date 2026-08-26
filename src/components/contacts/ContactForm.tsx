@@ -146,7 +146,8 @@ export default function ContactForm({
             Photo
           </h2>
           <p className="text-[13px] text-muted-foreground">
-            Optional. PNG, JPEG, WebP, or GIF up to 1 MB.
+            Optional. PNG, JPEG, or WebP any size — it is shrunk to a tiny
+            avatar automatically. GIFs are kept as-is, up to 1 MB.
           </p>
         </div>
 
