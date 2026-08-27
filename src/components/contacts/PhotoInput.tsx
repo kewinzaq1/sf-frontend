@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ImagePlus, Trash2, Upload } from "lucide-react";
 import Button from "@/components/ui/Button";
-import { compressAvatar, MAX_INPUT_BYTES } from "@/lib/contacts/image";
+import { compressAvatar, isAnimatedWebP, MAX_INPUT_BYTES } from "@/lib/contacts/image";
 import { PHOTO_MAX_BYTES, PHOTO_MIME_TYPES } from "@/lib/contacts/schema";
 
 /**
@@ -82,17 +82,21 @@ export default function PhotoInput({
       setLocalError("That file is over 25 MB. Pick a smaller one.");
       return;
     }
-    // Re-encoding a GIF through a canvas would freeze its animation, so GIFs
-    // are kept verbatim and stay bound by the API's 1 MB cap instead.
-    if (file.type === "image/gif" && file.size > PHOTO_MAX_BYTES) {
-      setLocalError("GIFs are kept as-is, so they must be 1 MB or smaller.");
+    const jobId = jobIdRef.current;
+
+    // Re-encoding through a canvas would freeze animation, so GIFs and
+    // animated WebPs are kept verbatim and stay bound by the API's 1 MB cap.
+    const keepVerbatim =
+      file.type === "image/gif" || (await isAnimatedWebP(file));
+    if (jobIdRef.current !== jobId) return; // superseded while sniffing
+    if (keepVerbatim && file.size > PHOTO_MAX_BYTES) {
+      setLocalError("Animated images are kept as-is, so they must be 1 MB or smaller.");
       return;
     }
 
-    const jobId = jobIdRef.current;
     onReadStateChange?.(true);
 
-    if (file.type === "image/gif") {
+    if (keepVerbatim) {
       readVerbatim(file, jobId);
       return;
     }

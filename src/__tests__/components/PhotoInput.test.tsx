@@ -99,6 +99,40 @@ describe("PhotoInput", () => {
     expect(compressAvatarMock).not.toHaveBeenCalled();
   });
 
+  it("keeps a small animated WebP verbatim so its animation survives", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<PhotoInput />);
+
+    const animated = new File(
+      [new TextEncoder().encode("RIFF____WEBPVP8X__________ANIM____")],
+      "party.webp",
+      { type: "image/webp" },
+    );
+    await user.upload(screen.getByLabelText("Choose a profile photo"), animated);
+
+    await waitFor(() =>
+      expect(hiddenPhotoInput(container).value).toMatch(/^data:image\/webp;base64,/),
+    );
+    expect(compressAvatarMock).not.toHaveBeenCalled();
+  });
+
+  it("still compresses a still WebP", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<PhotoInput />);
+
+    const still = new File(
+      [new TextEncoder().encode("RIFF____WEBPVP8 ____________")],
+      "pic.webp",
+      { type: "image/webp" },
+    );
+    await user.upload(screen.getByLabelText("Choose a profile photo"), still);
+
+    await waitFor(() =>
+      expect(hiddenPhotoInput(container).value).toBe(COMPRESSED),
+    );
+    expect(compressAvatarMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a GIF over the API cap, since GIFs skip compression", async () => {
     const user = userEvent.setup();
     render(<PhotoInput />);

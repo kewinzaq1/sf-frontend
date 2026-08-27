@@ -16,6 +16,29 @@ export const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 const QUALITY = 0.8;
 
 /**
+ * True when a WebP file declares an animation.
+ *
+ * An animated WebP is a RIFF container whose `VP8X` header is followed by an
+ * `ANIM` chunk within the first few dozen bytes — sniffing those is enough,
+ * and cheap. Errors count as "not animated": the file then goes through the
+ * compressor, which at worst freezes a file we failed to read anyway.
+ */
+export async function isAnimatedWebP(file: File): Promise<boolean> {
+  if (file.type !== "image/webp") return false;
+  try {
+    const header: ArrayBuffer = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(file.slice(0, 64));
+    });
+    return new TextDecoder("ascii").decode(new Uint8Array(header)).includes("ANIM");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Centre-crop `file` to a square, downscale it to `AVATAR_SIZE`, and return
  * the result as a WebP data URL (JPEG where the browser cannot encode WebP).
  * Never upscales: an image smaller than the target keeps its own size.
