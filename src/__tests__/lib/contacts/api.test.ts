@@ -158,6 +158,24 @@ describe("error translation", () => {
     });
   });
 
+  it("maps nested address errors onto the addresses key, naming the entry", () => {
+    const error = new ApiError(
+      422,
+      JSON.stringify({
+        detail: [
+          {
+            loc: ["body", "addresses", 1, "postal_code"],
+            msg: "String should have at most 20 characters",
+          },
+        ],
+      }),
+    );
+
+    expect(toFieldErrors(error)).toEqual({
+      addresses: "Address 2: String should have at most 20 characters",
+    });
+  });
+
   it("returns nothing for a non-validation body", () => {
     expect(toFieldErrors(new ApiError(500, "boom"))).toEqual({});
   });

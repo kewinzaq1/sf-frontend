@@ -65,7 +65,10 @@ export default function ContactForm({
     const echoed = state.values?.addresses;
     if (echoed) {
       try {
-        return JSON.parse(echoed) as AddressInput[];
+        const parsed: unknown = JSON.parse(echoed);
+        // The echo is whatever the user submitted — parseable JSON is not
+        // necessarily an array, and rendering must not trust it.
+        if (Array.isArray(parsed)) return parsed as AddressInput[];
       } catch {
         // Fall through to the stored addresses.
       }
