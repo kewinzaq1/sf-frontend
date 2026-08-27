@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ImagePlus, Trash2, Upload } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { PHOTO_MAX_BYTES, PHOTO_MIME_TYPES } from "@/lib/contacts/schema";
@@ -16,18 +16,32 @@ import { PHOTO_MAX_BYTES, PHOTO_MIME_TYPES } from "@/lib/contacts/schema";
 export default function PhotoInput({
   initialPhoto,
   error,
+  onReadStateChange,
 }: {
   initialPhoto?: string | null;
   error?: string;
+  onReadStateChange?: (isReading: boolean) => void;
 }) {
   const [photo, setPhoto] = useState(initialPhoto ?? "");
   const [localError, setLocalError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const readerRef = useRef<FileReader | null>(null);
+  const readIdRef = useRef(0);
+
+  function cancelPendingRead() {
+    readIdRef.current += 1;
+    readerRef.current?.abort();
+    readerRef.current = null;
+    onReadStateChange?.(false);
+  }
+
+  useEffect(() => () => readerRef.current?.abort(), []);
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     // Reset so picking the same file again still fires a change event.
     event.target.value = "";
+    cancelPendingRead();
     if (!file) return;
 
     if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
@@ -40,12 +54,34 @@ export default function PhotoInput({
     }
 
     const reader = new FileReader();
+    const readId = readIdRef.current;
+    readerRef.current = reader;
+    onReadStateChange?.(true);
+
+    function isCurrentRead() {
+      return readerRef.current === reader && readIdRef.current === readId;
+    }
+
     reader.onload = () => {
+      if (!isCurrentRead()) return;
       setPhoto(String(reader.result));
       setLocalError(null);
+      readerRef.current = null;
+      onReadStateChange?.(false);
     };
-    reader.onerror = () => setLocalError("That file could not be read.");
+    reader.onerror = () => {
+      if (!isCurrentRead()) return;
+      setLocalError("That file could not be read.");
+      readerRef.current = null;
+      onReadStateChange?.(false);
+    };
     reader.readAsDataURL(file);
+  }
+
+  function removePhoto() {
+    cancelPendingRead();
+    setPhoto("");
+    setLocalError(null);
   }
 
   const message = localError ?? error;
@@ -89,7 +125,7 @@ export default function PhotoInput({
             {photo ? "Change photo" : "Upload photo"}
           </Button>
           {photo ? (
-            <Button variant="ghost" size="sm" onClick={() => setPhoto("")}>
+            <Button variant="ghost" size="sm" onClick={removePhoto}>
               <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
               Remove
             </Button>

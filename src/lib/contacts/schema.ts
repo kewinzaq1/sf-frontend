@@ -20,6 +20,10 @@ export const PHOTO_MIME_TYPES = [
 
 const PHOTO_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 
+function hasCompleteBase64Payload(dataUrl: string): boolean {
+  return dataUrl.slice(dataUrl.indexOf(",") + 1).length % 4 === 0;
+}
+
 /** Decoded size of a base64 data URL's payload, in bytes. */
 export function dataUrlByteSize(dataUrl: string): number {
   const payload = dataUrl.slice(dataUrl.indexOf(",") + 1);
@@ -78,6 +82,10 @@ export const contactInputSchema = z.object({
     .default(null)
     .refine(
       (value) => value === null || PHOTO_DATA_URL.test(value),
+      "Photo must be a PNG, JPEG, WebP, or GIF image",
+    )
+    .refine(
+      (value) => value === null || hasCompleteBase64Payload(value),
       "Photo must be a PNG, JPEG, WebP, or GIF image",
     )
     .refine(

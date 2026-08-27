@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -20,11 +20,11 @@ export type ContactFormAction = (
   formData: FormData,
 ) => Promise<FormState>;
 
-function SubmitButton({ label }: { label: string }) {
+function SubmitButton({ label, disabled }: { label: string; disabled: boolean }) {
   const { pending } = useFormStatus();
 
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || disabled}>
       {pending ? (
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
       ) : null}
@@ -50,13 +50,23 @@ export default function ContactForm({
   cancelHref: string;
 }) {
   const [state, formAction] = useActionState(action, EMPTY_FORM_STATE);
+  const [isPhotoReading, setIsPhotoReading] = useState(false);
 
   function valueFor(name: keyof ContactInput): string {
     return state.values?.[name] ?? contact?.[name] ?? "";
   }
 
+  function preventSubmitWhileReadingPhoto(event: FormEvent<HTMLFormElement>) {
+    if (isPhotoReading) event.preventDefault();
+  }
+
   return (
-    <form action={formAction} noValidate className="space-y-8">
+    <form
+      action={formAction}
+      noValidate
+      className="space-y-8"
+      onSubmit={preventSubmitWhileReadingPhoto}
+    >
       {state.status === "error" && state.message ? (
         <div
           role="alert"
@@ -86,6 +96,7 @@ export default function ContactForm({
         <PhotoInput
           initialPhoto={state.values?.photo ?? contact?.photo ?? ""}
           error={state.fieldErrors?.photo}
+          onReadStateChange={setIsPhotoReading}
         />
       </fieldset>
 
@@ -116,7 +127,7 @@ export default function ContactForm({
       ))}
 
       <div className="flex items-center gap-2 border-t border-hairline pt-4">
-        <SubmitButton label={submitLabel} />
+        <SubmitButton label={submitLabel} disabled={isPhotoReading} />
         <Link href={cancelHref} className={buttonClasses("secondary")}>
           Cancel
         </Link>
