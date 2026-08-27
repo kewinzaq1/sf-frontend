@@ -19,9 +19,13 @@ function values(overrides: Record<string, string> = {}) {
     postal_code: "",
     country: "",
     notes: "",
+    photo: "",
     ...overrides,
   };
 }
+
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 describe("contactInputSchema", () => {
   it("lowercases the email and nulls out the blanks", () => {
@@ -66,6 +70,33 @@ describe("contactInputSchema", () => {
       postal_code: "Postal code must be 20 characters or fewer",
     });
   });
+
+  it("accepts an image data URL as the photo and nulls out a blank one", () => {
+    expect(contactInputSchema.parse(values({ photo: TINY_PNG })).photo).toBe(
+      TINY_PNG,
+    );
+    expect(contactInputSchema.parse(values()).photo).toBeNull();
+  });
+
+  it("rejects a photo that is not an image data URL", () => {
+    const result = contactInputSchema.safeParse(
+      values({ photo: "https://example.com/ada.png" }),
+    );
+
+    expect(zodFieldErrors(result.error!).photo).toBe(
+      "Photo must be a PNG, JPEG, WebP, or GIF image",
+    );
+  });
+
+  it("rejects a photo over the 1 MB cap", () => {
+    // ~1.4M base64 chars decode to just over 1 MiB.
+    const oversized = `data:image/png;base64,${"A".repeat(1_398_104)}`;
+    const result = contactInputSchema.safeParse(values({ photo: oversized }));
+
+    expect(zodFieldErrors(result.error!).photo).toBe(
+      "Photo must be 1 MB or smaller",
+    );
+  });
 });
 
 describe("formDataToValues", () => {
@@ -80,7 +111,7 @@ describe("formDataToValues", () => {
     expect(extracted.first_name).toBe("Grace");
     expect(extracted.last_name).toBe("");
     expect(Object.keys(extracted).sort()).toEqual(
-      CONTACT_FIELDS.map((field) => field.name).sort(),
+      [...CONTACT_FIELDS.map((field) => field.name), "photo"].sort(),
     );
   });
 });

@@ -9,6 +9,28 @@ import type { ContactInput } from "./types";
  * and anything it rejects anyway is surfaced by `toFieldErrors` in `./api.ts`.
  */
 
+/** Photo rules, mirroring the API: an image data URL of at most 1 MiB decoded. */
+export const PHOTO_MAX_BYTES = 1_048_576;
+export const PHOTO_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
+const PHOTO_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+function hasCompleteBase64Payload(dataUrl: string): boolean {
+  return dataUrl.slice(dataUrl.indexOf(",") + 1).length % 4 === 0;
+}
+
+/** Decoded size of a base64 data URL's payload, in bytes. */
+export function dataUrlByteSize(dataUrl: string): number {
+  const payload = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.floor((payload.length * 3) / 4) - padding;
+}
+
 /** Optional text: trimmed, and blank becomes `null` (the API clears the field). */
 function optionalText(max: number, label: string) {
   return z
@@ -52,6 +74,24 @@ export const contactInputSchema = z.object({
     .transform((value) => value || null)
     .nullable()
     .default(null),
+  photo: z
+    .string()
+    .trim()
+    .transform((value) => value || null)
+    .nullable()
+    .default(null)
+    .refine(
+      (value) => value === null || PHOTO_DATA_URL.test(value),
+      "Photo must be a PNG, JPEG, WebP, or GIF image",
+    )
+    .refine(
+      (value) => value === null || hasCompleteBase64Payload(value),
+      "Photo must be a PNG, JPEG, WebP, or GIF image",
+    )
+    .refine(
+      (value) => value === null || dataUrlByteSize(value) <= PHOTO_MAX_BYTES,
+      "Photo must be 1 MB or smaller",
+    ),
 }) satisfies z.ZodType<ContactInput, unknown>;
 
 export type ContactFormValues = z.input<typeof contactInputSchema>;
@@ -218,10 +258,14 @@ export const CONTACT_FIELDS: ContactFieldSpec[] = CONTACT_FIELD_GROUPS.flatMap(
 export function formDataToValues(
   formData: FormData,
 ): Record<keyof ContactInput, string> {
-  return Object.fromEntries(
-    CONTACT_FIELDS.map((field) => [
-      field.name,
-      String(formData.get(field.name) ?? ""),
-    ]),
-  ) as Record<keyof ContactInput, string>;
+  return {
+    ...(Object.fromEntries(
+      CONTACT_FIELDS.map((field) => [
+        field.name,
+        String(formData.get(field.name) ?? ""),
+      ]),
+    ) as Record<keyof ContactInput, string>),
+    // The photo is not a text field; PhotoInput submits it as a hidden input.
+    photo: String(formData.get("photo") ?? ""),
+  };
 }
